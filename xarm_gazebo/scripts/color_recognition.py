@@ -216,6 +216,7 @@ def get_recognition_rect(frame, lower=COLOR_DICT['red']['lower'], upper=COLOR_DI
     erode_hsv = cv2.erode(hsv, None, iterations=2)
     inRange_hsv = cv2.inRange(erode_hsv, lower, upper)
     contours = cv2.findContours(inRange_hsv.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[-2]
+    print("contours ", )
     rects = []
     for _, c in enumerate(contours):
         rect = cv2.minAreaRect(c)
@@ -236,11 +237,42 @@ def get_recognition_rect(frame, lower=COLOR_DICT['red']['lower'], upper=COLOR_DI
         if key == ord('q'):
             rospy.signal_shutdown('key to exit')
     return rects
+def get_aruco_rect(frame, arucoParams, arucoDict, show = True):
+    rects = []
+    (corners, ids, rejected) = cv2.aruco.detectMarkers(frame, arucoDict, parameters=arucoParams)
+    if corners != None and len(corners) > 0:
+        center = np.average(corners[0][0], axis = 0)
+        width = corners[0][0][0][0] - corners[0][0][1][0]
+        height = corners[0][0][0][1] - corners[0][0][3][1]
+        rects.append(((center[0], center[1]), (width, height), -0.0))
+        for (markerCorner, markerID) in zip(corners, ids):
+            # extract the marker corners (which are always returned
+            # # in top-left, top-right, bottom-right, and bottom-left
+            # # order)
+            corners = markerCorner.reshape((4, 2))
+            (topLeft, topRight, bottomRight, bottomLeft) = corners
+            # convert each of the (x, y)-coordinate pairs to integers
+            topRight = (int(topRight[0]), int(topRight[1]))
+            bottomRight = (int(bottomRight[0]), int(bottomRight[1]))
+            bottomLeft = (int(bottomLeft[0]), int(bottomLeft[1]))
+            topLeft = (int(topLeft[0]), int(topLeft[1]))
+            # draw the bounding box of the ArUCo detection
+            cv2.line(frame, topLeft, topRight, (0, 255, 0), 2)
+            cv2.line(frame, topRight, bottomRight, (0, 255, 0), 2)
+            cv2.line(frame, bottomRight, bottomLeft, (0, 255, 0), 2)
+            cv2.line(frame, bottomLeft, topLeft, (0, 255, 0), 2)
+        if show:
+            cv2.imshow("Frame", frame)
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'):
+                rospy.signal_shutdown('key to exit')
+    return rects
 
 
 if __name__ == '__main__':
     rospy.init_node('color_recognition_node', anonymous=False)
     dof = rospy.get_param('/xarm/DOF', default=6)
+    print(dof)
     rate = rospy.Rate(10.0)
 
     motion_que = queue.Queue(1)
@@ -249,18 +281,24 @@ if __name__ == '__main__':
 
     color = COLOR_DICT['red']
 
-    cam = GazeboCamera(topic_name='/camera/image_raw/compressed')
+    cam = GazeboCamera(topic_name='/camera2/image_raw/compressed')
 
     while not rospy.is_shutdown():
         rate.sleep()
         frame = cam.get_frame()
         if frame is None:
             continue
+        #cv2.imshow("gazebo_cam", frame)
         rects = get_recognition_rect(frame, lower=color['lower'], upper=color['upper'])
+        arucoDict = cv2.aruco.Dictionary_get(cv2.aruco.DICT_7X7_50)
+        arucoParams = cv2.aruco.DetectorParameters_create()
+        #rects = get_aruco_rect(frame, arucoParams, arucoDict)
+        print("recognized location, ", rects)
         if len(rects) == 0:
             continue
         if motion.in_motion or motion_que.qsize() != 0:
             continue
         motion_que.put(rects)
+        #print("motion queue, ", motion_que)
         
     

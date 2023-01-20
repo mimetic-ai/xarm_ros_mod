@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://ros.org/wiki/xacro">
 
-  <xacro:macro name="camera_gazebo" params="prefix">
+  <xacro:macro name="camera2_gazebo" params="prefix">
     <link name="${prefix}link_camera">
       <inertial>
         <origin xyz="0 0 0" rpy="0 0 0" />
@@ -27,22 +27,22 @@
       </collision>
     </link>
     <joint
-      name="${prefix}joint_camera"
+      name="${prefix}joint_camera2"
       type="fixed">
       <origin
-        xyz="0.692 0.001 1.17"
+        xyz="0.792 0.001 1.17"
         rpy="0 1.5708 0" />
       <parent
         link="link_base" />
       <child
-        link="${prefix}link_camera" />
+        link="${prefix}link_camera2" />
     </joint>
 
-    <gazebo reference="${prefix}link_camera">
+    <gazebo reference="${prefix}link_camera2">
       <material>Gazebo/Black</material>
     </gazebo>
 
-    <gazebo reference="${prefix}link_camera">
+    <gazebo reference="${prefix}link_camera2">
       <sensor type="camera" name="xarm_camera_node">
         <update_rate>10.0</update_rate>
         <camera name="head">
@@ -62,20 +62,11 @@
             <mean>0.0</mean>
             <stddev>0.007</stddev>
           </noise>
-          <lens>
-          <intrinsics>
-          <fx>400</fx>
-          <fy>400</fy>
-          <cx>200</cx>
-          <cy>200</cy>
-          <s>0</s>
-          </intrinsics>
-          </lens>
         </camera>
         <plugin name="gazebo_camera" filename="libgazebo_ros_camera.so">
           <alwaysOn>true</alwaysOn>
           <updateRate>0.0</updateRate>
-          <cameraName>/camera</cameraName>
+          <cameraName>/camera2</cameraName>
           <imageTopicName>image_raw</imageTopicName>
           <cameraInfoTopicName>camera_info</cameraInfoTopicName>
           <frameName>camera_link</frameName>
