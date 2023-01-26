@@ -49,9 +49,9 @@
           <!-- <horizontal_fov>1.3962634</horizontal_fov> -->
           <horizontal_fov>0.9948376567</horizontal_fov>
           <image>
-            <width>640</width>
-            <height>480</height>
-            <foramt>B8G8R8</foramt>
+            <width>1920</width>
+            <height>1080</height>
+            <format>B8G8R8</format>
           </image>
           <clip>
             <near>0.02</near>
@@ -64,10 +64,10 @@
           </noise>
           <lens>
           <intrinsics>
-          <fx>400</fx>
-          <fy>400</fy>
-          <cx>200</cx>
-          <cy>200</cy>
+          <fx>1493</fx>
+          <fy>1493</fy>
+          <cx>960</cx>
+          <cy>540</cy>
           <s>0</s>
           </intrinsics>
           </lens>
