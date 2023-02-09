@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="robot_dof" default="6"/>
+  <arg name="paused" default="true" doc="Starts gazebo in paused mode" />
+  <arg name="gui" default="true" doc="Starts gazebo gui" />
+  <arg name="effort_control" default="false"/>
+  <arg name="velocity_control" default="false"/>
+  <arg name="namespace" default="xarm"/>
+
+  <include file="$(find xarm_gazebo)/launch/xarm_camera_scene.launch">
+    <arg name="paused" value="$(arg paused)"/>
+    <arg name="robot_dof" value="$(arg robot_dof)"/>
+    <arg name="gui" value="$(arg gui)"/>
+  </include>
+
+  <node name="webcam_sub_cpp" pkg="cv_basics" type="webcam_sub_cpp"/>
+  <node name="triangulation_node" pkg="cv_basics" type="triangulation_node"/>
+  <!-- <node name="unpause_physics" pkg="gazebo_ros" type="unpause_physics" output="screen"/> -->
+
+</launch>
