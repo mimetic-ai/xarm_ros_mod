@@ -26,6 +26,21 @@ def aruco_callback(data):
   global aruco_map
   aruco_map[int(data.label)] = [data.aruco_center, data.aruco_x_axis, data.aruco_z_axis]
 
+# Takes in a quaternion and returns a np.ndarray in the format [x, y, z, w]
+# If quaternion is already indexable, ensures proper format: [x, y, z, w]
+def quat_to_npy(q):
+  if type(q) == quaternion.quaternion or geometry_msgs.msg._Quaternion.Quaternion:
+    return np.array([q.x, q.y, q.z, q.w])
+  else:
+    raise TypeError('Variable of type {} should not be used.'.format(type(q)))
+
+    
+# Takes in two quaternions and returns the smallest angle of rotation between them
+def quat_distance(q1, q2):
+  q1 = quat_to_npy(q1)
+  q2 = quat_to_npy(q2)
+  inner = np.inner(q1, q2)
+  return np.arccos(2*inner**2 - 1)
 
 
 ##takes in position array and orientation quaternion and returns corresponding pose
@@ -39,6 +54,8 @@ def getPoseQ(position, orientation):
   goal_pose.orientation.z = orientation.z
   goal_pose.orientation.w = orientation.w
   return goal_pose
+
+
 ##takes in position array and orientation values and returns corresponding pose
 def getPose(position, orientation):
   goal_pose = geometry_msgs.msg.Pose()
@@ -51,11 +68,13 @@ def getPose(position, orientation):
   goal_pose.orientation.w = orientation[3]
   return goal_pose
 
+
 ##moves to target pose
 def moveArm(arm_commander, target_pose):
   arm_commander.set_pose_target(target_pose)
   arm_commander.go(wait=True)
   arm_commander.clear_pose_targets()
+
 
 ##moves robotic arm from current position to the position in front of spoon1, takes in arm commander and aruco location info
 ##position: x, y, z
@@ -67,6 +86,8 @@ def frontOfSpoonOne(arm_commander, grab_pos, x_axis, y_axis, z_axis):
   moveArm(arm_commander, goal_pose)
   current_pose = arm_commander.get_current_pose()
   return current_pose
+
+
 def tweakPosition(arm_commander, grab_pos, x_axis, y_axis, z_axis):
   M = np.array([-z_axis, x_axis, y_axis]).reshape((3,3))
   q = quaternion.from_rotation_matrix(M)
@@ -76,36 +97,60 @@ def tweakPosition(arm_commander, grab_pos, x_axis, y_axis, z_axis):
   return current_pose
 
 
-
-
 ##moves robotic arm from current posotion to the position to the left of spoon1, takes in arm commander and aruco location info
 def leftOfSpoonOne(arm_commander, grab_pos, x_axis, y_axis, z_axis):
-  M = np.array([x_axis, y_axis, z_axis]).reshape((3,3))
-  q = quaternion.from_rotation_matrix(M)
-  goal_pose = getPoseQ(grab_pos, q)
+  # This code was for the left or right approach
+  M1 = np.array([-z_axis, y_axis, x_axis]).reshape((3,3))
+  M2 = np.array([z_axis, y_axis, -x_axis]).reshape((3,3))
+  # Rows of rotation matrix match to axes of gripper
+  # First row is gripper x axis, second is y_axis, and third is z_axis
+  # in our case:
+  # gripper's z_axis should be the aruco's z_axis
+  # gripper's x_axis shoule be the aruco's y_axis
+  # gripper's y_axis should be the aruco's -x_axis
+  curr_q = arm_commander.get_current_pose().pose.orientation
+  q1 = quaternion.from_rotation_matrix(M1)
+  q2 = quaternion.from_rotation_matrix(M2) 
+  goal_pose = []
+  relativePos = None
+  # need to get rid of the two quaternion check
+  if quat_distance(curr_q, q1) < quat_distance(curr_q, q2): # checks min. dist. b/w 2 quats 
+    goal_pose = getPoseQ(grab_pos + 0.05*x_axis, q1)
+    relativePos = 'left'
+  else:
+    goal_pose = getPoseQ(grab_pos - 0.05*x_axis, q2)
+    relativePos = 'right'
   moveArm(arm_commander, goal_pose)
   current_pose = arm_commander.get_current_pose()
-  return current_pose
-
+  return current_pose, relativePos
 
 
 ###takes in string specifying relative position, grabs spoon
 ##CASE SENSITIVE
 def grabSpoon(arm_commander, grab_commander, relativePos, x_axis, y_axis, z_axis):
+  current_pos = arm_commander.get_current_pose().pose.position
+  position = np.array([current_pos.x, current_pos.y, current_pos.z])
   if relativePos == 'straight':
     grab_commander.set_named_target('close')
     grab_commander.go(wait=True)
     grab_commander.clear_pose_targets()
     return
   elif relativePos == 'left':
-    current_pos = arm_commander.get_current_pose().pose.position
-    position = [current_pos.x, current_pos.y, current_pos.z]
-    # tweakPosition(arm_commander=arm_commander, grab_pos = position, x_axis=x_axis, y_axis=y_axis, z_axis=z_axis)
+        # tweakPosition(arm_commander=arm_commander, grab_pos = position, x_axis=x_axis, y_axis=y_axis, z_axis=z_axis)
     #slightly adjusts gripper position so that spoon is grabbable
     #TO-do: change approach so that pose is generalizable not hardset
-    position = [0.6205737395860738, 0.07737037078351983, 0.14485234781784814]
-    orientation = [-0.31419790328833525, 0.8036317048344582, 0.47026131785865344, 0.18522973163053247]
-    target_pose = getPose(position, orientation)
+    position -= (0.05*x_axis)
+    orientation = arm_commander.get_current_pose().pose.orientation
+    target_pose = getPoseQ(position, orientation)
+    moveArm(arm_commander,target_pose)
+    grab_commander.set_named_target('close')
+    grab_commander.go(wait=True)
+    grab_commander.clear_pose_targets()
+    return
+  elif relativePos == 'right':
+    position += (0.05*x_axis)
+    orientation = arm_commander.get_current_pose().pose.orientation
+    target_pose = getPoseQ(position, orientation)
     moveArm(arm_commander,target_pose)
     grab_commander.set_named_target('close')
     grab_commander.go(wait=True)
@@ -128,33 +173,62 @@ def goHome(arm_commander, relativePos, intermediatePos):
 
 
 
-
-
-
-
-
-
-
-
 def int_callback(data, args):
   global aruco_map, bowl_pos
   # print(aruco_map.keys())
   arm_commander = args[0]
   grab_commander = args[1]
   #print(arm_commander.get_current_pose())
+  
   center, x_axis, z_axis = aruco_map[data.data]
-  # print(type(center), type(x_axis), type(z_axis))
+  # x_axis corresponds to vector pointing from corner 1 to corner 0 of aruco code
+  # z_axis corresponds to vector pointing from corner 2 to corner 1 of aruco code
+
+  # print(type(center), type(x_axis), type(z_axis)) # I don't remember what this is; Believed geometry_msgs.msg._Vector3.Vector3
   x_axis = np.array([x_axis.x, x_axis.y, x_axis.z])
   z_axis = np.array([z_axis.x, z_axis.y, z_axis.z])
-  y_axis = np.cross(z_axis, x_axis)
+  y_axis = np.cross(z_axis, x_axis) # y_axis comes from z (cross) x
 
   center = np.array([center.x, center.y, center.z])
-  mod_grab_pos = center + 0.1 * z_axis
+  mod_grab_pos = center + 0.1 * z_axis  # desired grab position of the spoon
+  # modifies gripper grabbing location in the aruco frame; center is used as origin
 
-  left_pos = leftOfSpoonOne(arm_commander=arm_commander, grab_pos=mod_grab_pos, x_axis=x_axis, y_axis= y_axis, z_axis = z_axis)
+  intermediate_pos, relativePos = leftOfSpoonOne(arm_commander=arm_commander, grab_pos=mod_grab_pos, x_axis=x_axis, y_axis= y_axis, z_axis = z_axis)
   ##case sensitive
-  grabSpoon(arm_commander= arm_commander, grab_commander= grab_commander, relativePos='left', x_axis=x_axis, y_axis = y_axis, z_axis=z_axis)
-  goHome(arm_commander = arm_commander, relativePos = 'left', intermediatePos = left_pos)
+  # if we save the spoon_grab position, we can use this as the spoon drop position
+  grabSpoon(arm_commander= arm_commander, grab_commander= grab_commander, relativePos=relativePos, x_axis=x_axis, y_axis = y_axis, z_axis=z_axis)
+  goHome(arm_commander = arm_commander, relativePos = relativePos, intermediatePos = intermediate_pos)
+
+  # Next steps:
+  # the transform from the gripper frame to the scoop frame is:
+    # the scoop's x_axis is the gripper's z_axis
+    # the scoop's y_axis is the gripper's -y_axis
+    # the scoop's z_axis is the gripper's x_axis
+    # the scoop's origin is /alpha (cm) down the spoon from the aruco code's center 
+    # alpha depends on the length of the spoon; don't know off the top of my head
+    # this info is given in the scoop frame, but we need in the gripper frame
+    # a rotation matrix's inverse is it's transpose
+    # think about the grippers position with respect to the position of the scoop
+
+  # we get the bowl position from the bowl callback
+  # bowl_detection.py node is not auto-run
+  # make sure to launch manually
+  # bowl position subscriber should be created already
+
+  # for right now, just try identity quaternion as the target pose for scoop
+  # could need to be tweaked later
+  # need to find gripper's position from scoop as described above
+  # a rotation about the scoop's x_axis is equivalent to rotation around the gripper's y_axis
+
+  # once scoop over bowl, scoop needs to be rotated around gripper z_axis by -pi/2 rad
+  # then we return gripper to drop position as saved earlier
+
+  # this is a high level outline
+  # there is a lot to change
+  # this should also help us communicate where we're running into issues
+  # text if you run into something but don't expect an immediate reply
+  # we can work through more stuff together when i start working in the evening
+  
 
   # #M = np.array([-z_axis, x_axis, -y_axis]).reshape((3,3))
   # M = np.array([x_axis, z_axis, -y_axis]).reshape((3,3))
@@ -265,11 +339,19 @@ def receive_message():
   moveit_commander.roscpp_initialize(sys.argv)
   grab_commander = moveit_commander.move_group.MoveGroupCommander('xarm_gripper')
   arm_commander = moveit_commander.MoveGroupCommander("xarm6")
+  scene = moveit_commander.PlanningSceneInterface()
+  rospy.sleep(1)
   #print(arm_commander.get_current_pose())
   rospy.Subscriber('/spoon_aruco_frame', ArucoFrame, aruco_callback)
   rospy.Subscriber('/which_aruco', UInt8, int_callback, (arm_commander, grab_commander))
   rospy.Subscriber('/filtered_bowl_pos', geometry_msgs.msg.Vector3, bowl_callback)
 
+  p = geometry_msgs.msg.PoseStamped()
+  p.header.frame_id = "world"
+  p.pose.position.x = 0.7
+  p.pose.position.y = 0
+  p.pose.position.z = -0.03
+  scene.add_box("table", p, (0.7, 0.5, 0.07))
   arm_commander.set_max_velocity_scaling_factor(1.0)
   arm_commander.set_max_acceleration_scaling_factor(1.0)
 
