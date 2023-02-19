@@ -79,97 +79,129 @@ def moveArm(arm_commander, target_pose):
 ##moves robotic arm from current position to the position in front of spoon1, takes in arm commander and aruco location info
 ##position: x, y, z
 ##orientation: x, y, z, w
-def frontOfSpoonOne(arm_commander, grab_pos, x_axis, y_axis, z_axis):
-  M = np.array([-z_axis, x_axis, -y_axis]).reshape((3,3))
+def frontOfSpoonOne(arm_commander, grab_commander, grab_pos, x_axis, y_axis, z_axis):
+  #grab_pos = grab_pos + (-0.01 * y_axis) # + (0.005 * x_axis)
+  M = np.array([y_axis, z_axis, -x_axis]).reshape((3,3))
+  #M = np.array([-z_axis, x_axis, -y_axis]).reshape((3,3))
   q = quaternion.from_rotation_matrix(M)
   goal_pose = getPoseQ(grab_pos, q)
   moveArm(arm_commander, goal_pose)
   current_pose = arm_commander.get_current_pose()
+  ##adjusting pose to grab position
+  current_pose.pose.position.x += 0.02
+  current_pose.pose.position.z -= 0.03
+  moveArm(arm_commander, current_pose)
+  ##grabbing and moving up to final pose
+  grab_commander.set_named_target('close')
+  grab_commander.go(wait=True)
+  grab_commander.clear_pose_targets()
+  current_pose.pose.position.z += 0.15
+  moveArm(arm_commander, current_pose)
   return current_pose
 
-
-def tweakPosition(arm_commander, grab_pos, x_axis, y_axis, z_axis):
-  M = np.array([-z_axis, x_axis, y_axis]).reshape((3,3))
+def frontOfSpoonTwo(arm_commander, grab_commander, grab_pos, x_axis, y_axis, z_axis):
+  #grab_pos = grab_pos + (-0.01 * y_axis) # + (0.005 * x_axis)
+  M = np.array([y_axis, z_axis, -x_axis]).reshape((3,3))
+  #M = np.array([-z_axis, x_axis, -y_axis]).reshape((3,3))
   q = quaternion.from_rotation_matrix(M)
   goal_pose = getPoseQ(grab_pos, q)
   moveArm(arm_commander, goal_pose)
   current_pose = arm_commander.get_current_pose()
+  ##adjusting pose to grab position
+  current_pose.pose.position.x += 0.02
+  current_pose.pose.position.z -= 0.035
+  moveArm(arm_commander, current_pose)
+  ##grabbing and moving up to final pose
+  grab_commander.set_named_target('close')
+  grab_commander.go(wait=True)
+  grab_commander.clear_pose_targets()
+  current_pose.pose.position.z += 0.15
+  moveArm(arm_commander, current_pose)
   return current_pose
 
 
-##moves robotic arm from current posotion to the position to the left of spoon1, takes in arm commander and aruco location info
-def leftOfSpoonOne(arm_commander, grab_pos, x_axis, y_axis, z_axis):
-  # This code was for the left or right approach
-  M1 = np.array([-z_axis, y_axis, x_axis]).reshape((3,3))
-  M2 = np.array([z_axis, y_axis, -x_axis]).reshape((3,3))
-  # Rows of rotation matrix match to axes of gripper
-  # First row is gripper x axis, second is y_axis, and third is z_axis
-  # in our case:
-  # gripper's z_axis should be the aruco's z_axis
-  # gripper's x_axis shoule be the aruco's y_axis
-  # gripper's y_axis should be the aruco's -x_axis
-  curr_q = arm_commander.get_current_pose().pose.orientation
-  q1 = quaternion.from_rotation_matrix(M1)
-  q2 = quaternion.from_rotation_matrix(M2) 
-  goal_pose = []
-  relativePos = None
-  # need to get rid of the two quaternion check
-  if quat_distance(curr_q, q1) < quat_distance(curr_q, q2): # checks min. dist. b/w 2 quats 
-    goal_pose = getPoseQ(grab_pos + 0.05*x_axis, q1)
-    relativePos = 'left'
-  else:
-    goal_pose = getPoseQ(grab_pos - 0.05*x_axis, q2)
-    relativePos = 'right'
-  moveArm(arm_commander, goal_pose)
-  current_pose = arm_commander.get_current_pose()
-  return current_pose, relativePos
+# def tweakPosition(arm_commander, grab_pos, x_axis, y_axis, z_axis):
+#   M = np.array([-z_axis, x_axis, y_axis]).reshape((3,3))
+#   q = quaternion.from_rotation_matrix(M)
+#   goal_pose = getPoseQ(grab_pos, q)
+#   moveArm(arm_commander, goal_pose)
+#   current_pose = arm_commander.get_current_pose()
+#   return current_pose
+
+
+# ##moves robotic arm from current posotion to the position to the left of spoon1, takes in arm commander and aruco location info
+# def leftOfSpoonOne(arm_commander, grab_pos, x_axis, y_axis, z_axis):
+#   # This code was for the left or right approach
+#   M1 = np.array([-z_axis, y_axis, x_axis]).reshape((3,3))
+#   M2 = np.array([z_axis, y_axis, -x_axis]).reshape((3,3))
+#   # Rows of rotation matrix match to axes of gripper
+#   # First row is gripper x axis, second is y_axis, and third is z_axis
+#   # in our case:
+#   # gripper's z_axis should be the aruco's z_axis
+#   # gripper's x_axis shoule be the aruco's y_axis
+#   # gripper's y_axis should be the aruco's -x_axis
+#   curr_q = arm_commander.get_current_pose().pose.orientation
+#   q1 = quaternion.from_rotation_matrix(M1)
+#   q2 = quaternion.from_rotation_matrix(M2) 
+#   goal_pose = []
+#   relativePos = None
+#   # need to get rid of the two quaternion check
+#   if quat_distance(curr_q, q1) < quat_distance(curr_q, q2): # checks min. dist. b/w 2 quats 
+#     goal_pose = getPoseQ(grab_pos + 0.05*x_axis, q1)
+#     relativePos = 'left'
+#   else:
+#     goal_pose = getPoseQ(grab_pos - 0.05*x_axis, q2)
+#     relativePos = 'right'
+#   moveArm(arm_commander, goal_pose)
+#   current_pose = arm_commander.get_current_pose()
+#   return current_pose, relativePos
 
 
 ###takes in string specifying relative position, grabs spoon
 ##CASE SENSITIVE
-def grabSpoon(arm_commander, grab_commander, relativePos, x_axis, y_axis, z_axis):
-  current_pos = arm_commander.get_current_pose().pose.position
-  position = np.array([current_pos.x, current_pos.y, current_pos.z])
-  if relativePos == 'straight':
-    grab_commander.set_named_target('close')
-    grab_commander.go(wait=True)
-    grab_commander.clear_pose_targets()
-    return
-  elif relativePos == 'left':
-        # tweakPosition(arm_commander=arm_commander, grab_pos = position, x_axis=x_axis, y_axis=y_axis, z_axis=z_axis)
-    #slightly adjusts gripper position so that spoon is grabbable
-    #TO-do: change approach so that pose is generalizable not hardset
-    position -= (0.05*x_axis)
-    orientation = arm_commander.get_current_pose().pose.orientation
-    target_pose = getPoseQ(position, orientation)
-    moveArm(arm_commander,target_pose)
-    grab_commander.set_named_target('close')
-    grab_commander.go(wait=True)
-    grab_commander.clear_pose_targets()
-    return
-  elif relativePos == 'right':
-    position += (0.05*x_axis)
-    orientation = arm_commander.get_current_pose().pose.orientation
-    target_pose = getPoseQ(position, orientation)
-    moveArm(arm_commander,target_pose)
-    grab_commander.set_named_target('close')
-    grab_commander.go(wait=True)
-    grab_commander.clear_pose_targets()
-    return
+# def grabSpoon(arm_commander, grab_commander, relativePos, x_axis, y_axis, z_axis):
+#   current_pos = arm_commander.get_current_pose().pose.position
+#   position = np.array([current_pos.x, current_pos.y, current_pos.z])
+#   if relativePos == 'straight':
+#     grab_commander.set_named_target('close')
+#     grab_commander.go(wait=True)
+#     grab_commander.clear_pose_targets()
+#     return
+#   elif relativePos == 'left':
+#         # tweakPosition(arm_commander=arm_commander, grab_pos = position, x_axis=x_axis, y_axis=y_axis, z_axis=z_axis)
+#     #slightly adjusts gripper position so that spoon is grabbable
+#     #TO-do: change approach so that pose is generalizable not hardset
+#     position -= (0.05*x_axis)
+#     orientation = arm_commander.get_current_pose().pose.orientation
+#     target_pose = getPoseQ(position, orientation)
+#     moveArm(arm_commander,target_pose)
+#     grab_commander.set_named_target('close')
+#     grab_commander.go(wait=True)
+#     grab_commander.clear_pose_targets()
+#     return
+#   elif relativePos == 'right':
+#     position += (0.05*x_axis)
+#     orientation = arm_commander.get_current_pose().pose.orientation
+#     target_pose = getPoseQ(position, orientation)
+#     moveArm(arm_commander,target_pose)
+#     grab_commander.set_named_target('close')
+#     grab_commander.go(wait=True)
+#     grab_commander.clear_pose_targets()
+#     return
   
 
-def goHome(arm_commander, relativePos, intermediatePos):
-  if relativePos == 'straight':
-    arm_commander.set_named_target('hold-up')
-    arm_commander.go(wait=True)
-    arm_commander.clear_pose_targets()
-    return 
-  elif relativePos == 'left':
-    moveArm(arm_commander=arm_commander, target_pose=intermediatePos)
-    arm_commander.set_named_target('hold-up')
-    arm_commander.go(wait=True)
-    arm_commander.clear_pose_targets()
-    return
+# def goHome(arm_commander, relativePos, intermediatePos):
+#   if relativePos == 'straight':
+#     arm_commander.set_named_target('hold-up')
+#     arm_commander.go(wait=True)
+#     arm_commander.clear_pose_targets()
+#     return 
+#   elif relativePos == 'left':
+#     moveArm(arm_commander=arm_commander, target_pose=intermediatePos)
+#     arm_commander.set_named_target('hold-up')
+#     arm_commander.go(wait=True)
+#     arm_commander.clear_pose_targets()
+#     return
 
 
 
@@ -190,14 +222,17 @@ def int_callback(data, args):
   y_axis = np.cross(z_axis, x_axis) # y_axis comes from z (cross) x
 
   center = np.array([center.x, center.y, center.z])
-  mod_grab_pos = center + 0.1 * z_axis  # desired grab position of the spoon
+  #mod_grab_pos = center + (-0.035 * y_axis) + (0.01 * z_axis)  # desired grab position of the spoon
+  mod_grab_pos = center  # desired grab position of the spoon
   # modifies gripper grabbing location in the aruco frame; center is used as origin
+  if data.data == '1':
+    intermediate_pos = frontOfSpoonOne(arm_commander=arm_commander, grab_commander=grab_commander, grab_pos=mod_grab_pos, x_axis=x_axis, y_axis= y_axis, z_axis = z_axis)
+  else:
+    intermediate_pos = frontOfSpoonTwo(arm_commander=arm_commander, grab_commander=grab_commander, grab_pos=mod_grab_pos, x_axis=x_axis, y_axis= y_axis, z_axis = z_axis)
 
-  intermediate_pos, relativePos = leftOfSpoonOne(arm_commander=arm_commander, grab_pos=mod_grab_pos, x_axis=x_axis, y_axis= y_axis, z_axis = z_axis)
-  ##case sensitive
   # if we save the spoon_grab position, we can use this as the spoon drop position
-  grabSpoon(arm_commander= arm_commander, grab_commander= grab_commander, relativePos=relativePos, x_axis=x_axis, y_axis = y_axis, z_axis=z_axis)
-  goHome(arm_commander = arm_commander, relativePos = relativePos, intermediatePos = intermediate_pos)
+  # grabSpoon(arm_commander= arm_commander, grab_commander= grab_commander, relativePos=relativePos, x_axis=x_axis, y_axis = y_axis, z_axis=z_axis)
+  # goHome(arm_commander = arm_commander, relativePos = relativePos, intermediatePos = intermediate_pos)
 
   # Next steps:
   # the transform from the gripper frame to the scoop frame is:
@@ -358,13 +393,13 @@ def receive_message():
   grab_commander.set_max_velocity_scaling_factor(1.0)
   grab_commander.set_max_acceleration_scaling_factor(1.0)
 
-  arm_commander.set_named_target('hold-up')
-  arm_commander.go(wait=True)
-  arm_commander.clear_pose_targets()
+  # arm_commander.set_named_target('hold-up')
+  # arm_commander.go(wait=True)
+  # arm_commander.clear_pose_targets()
 
-  grab_commander.set_named_target('open')
-  grab_commander.go(wait=True)
-  grab_commander.clear_pose_targets()
+  # grab_commander.set_named_target('open')
+  # grab_commander.go(wait=True)
+  # grab_commander.clear_pose_targets()
 
   # Node is subscribing to the video_frames topic
  
