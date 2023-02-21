@@ -14,9 +14,21 @@ from tf import transformations as t
 import tf2_geometry_msgs.tf2_geometry_msgs as tf_gm
 import math
 
-global aruco_map 
+global aruco_map, bowl_pos 
 aruco_map = {}
 bowl_pos = [0, 0, 0]
+
+def roll(phi):
+    q = quaternion.as_quat_array([np.cos(phi/2), np.sin(phi/2), 0, 0])
+    return q
+
+def pitch(theta):
+    q = quaternion.as_quat_array([np.cos(theta/2), 0, np.sin(theta/2), 0])
+    return q
+
+def yaw(psi):
+    q = quaternion.as_quat_array([np.cos(psi/2), 0, 0, np.sin(psi/2)])
+    return q
 
 def bowl_callback(data):
     global bowl_pos
@@ -34,25 +46,44 @@ def quat_to_npy(q):
   else:
     raise TypeError('Variable of type {} should not be used.'.format(type(q)))
   
+def pos_to_npy(pos):
+  if type(pos) == geometry_msgs.msg._Vector3.Vector3 or geometry_msgs.msg._Point.Point:
+    return np.array([pos.x, pos.y, pos.z])
+  else:
+    raise TypeError('Variable of type {} should not be used'.format(type(pos)))  
+
+'''
+so i have the position of the scoop in the gripper frame
+i need to get the position of the scoop in the world frame
+position of gripper in world frame plus rotation from gripper frame to world frame multiplied spoon in gripper frame
+so i get the orientation of the spoon, convert to rotation matrix, transpose it and multiply by (0, 0, spn_len)
+'''
+
 
 def moveSpoonOverBowl(arm_commander, spoon_len):
   global bowl_pos
   curr_pose = arm_commander.get_current_pose()
-  curr_pos_2d = np.array([curr_pose.pose.position.x, curr_pose.pose.position.y])
-  bowl_pos_2d = bowl_pos[:-1]
+  gripper_orientation = quaternion.as_rotation_matrix(quaternion.as_quat_array(quat_to_npy(curr_pose.pose.orientation)))
 
-  # unit vector pointing from current gripping pos to bowl est center
-  u_b = (bowl_pos_2d - curr_pos_2d)/(np.linalg.norm(bowl_pos_2d - curr_pos_2d))
-  tgt_pos_2d = bowl_pos_2d - spoon_len*u_b # x, y coord of gripper tgt
-  psi = np.arctan((bowl_pos_2d[1] - tgt_pos_2d[1])/(bowl_pos_2d[0] - tgt_pos_2d[0]))
-  q = quaternion.quaternion(np.cos(-psi/2), np.sin(-psi/2), 0, 0)
-  tgt_pose = copy.deepcopy(curr_pose)
-  curr_q_npy = quat_to_npy(tgt_pose.pose.orientation)
-  q_npy_tgt = q * curr_q_npy
-  tgt_pose.pose.position.x = tgt_pos_2d[0]
-  tgt_pose.pose.position.y = tgt_pos_2d[1]
+  # Calculating the position of the spoon's scooper in the world frame
+  temp = (gripper_orientation.T @ np.array([[0], [0], [spoon_len]])).reshape((-1))
+  print(temp)
+  spoon_pos_world = pos_to_npy(curr_pose.pose.position) + temp
+  print(spoon_pos_world)
+
+  # Moving the gripper to place the spoon above the bowl
+  gripper_to_spoon_vec = spoon_pos_world - pos_to_npy(curr_pose.pose.position)
+  print("gripper to spoon vec", gripper_to_spoon_vec)
+  print("bowl pos", bowl_pos)
+  # bowl_pos_2d = bowl_pos[:-1]
+  # gripper_xy = bowl_pos_2d - gripper_to_spoon_vec[:-1]
+  gripper_tgt_pos = bowl_pos - gripper_to_spoon_vec
+  print(gripper_tgt_pos)
+
+  tgt_pose = getPoseQ(gripper_tgt_pos, quaternion.from_rotation_matrix(gripper_orientation))
   moveArm(arm_commander, tgt_pose)
-
+  tgt_pose.position.z = bowl_pos[-1] + 0.1
+  moveArm(arm_commander, tgt_pose)
     
 # Takes in two quaternions and returns the smallest angle of rotation between them
 def quat_distance(q1, q2):
@@ -114,8 +145,19 @@ def frontOfSpoonOne(arm_commander, grab_commander, grab_pos, x_axis, y_axis, z_a
   grab_commander.set_named_target('close')
   grab_commander.go(wait=True)
   grab_commander.clear_pose_targets()
+  
+  # Creating a rotation matrix where spoon is horizontal to the table
+  M = np.array([[0, 0, 1], [0, -1, 0], [1, 0, 0]]).reshape((3,3))
+  q = quaternion.from_rotation_matrix(M)
+  q = pitch(np.pi/8) * q
+  
   up_pose = copy.deepcopy(current_pose)
   up_pose.pose.position.z += 0.15
+  up_pose.pose.orientation.w = q.w
+  up_pose.pose.orientation.x = q.x
+  up_pose.pose.orientation.y = q.y
+  up_pose.pose.orientation.z = q.z
+  
   moveArm(arm_commander, up_pose)
   return current_pose
 
@@ -140,6 +182,7 @@ def frontOfSpoonTwo(arm_commander, grab_commander, grab_pos, x_axis, y_axis, z_a
   # Creating a rotation matrix where spoon is horizontal to the table
   M = np.array([[0, 0, 1], [0, -1, 0], [1, 0, 0]]).reshape((3,3))
   q = quaternion.from_rotation_matrix(M)
+  q = pitch(np.pi/8) * q
   
   up_pose = copy.deepcopy(current_pose)
   up_pose.pose.position.z += 0.15
@@ -263,7 +306,7 @@ def int_callback(data, args):
     spoon_grab_pose = frontOfSpoonOne(arm_commander=arm_commander, grab_commander=grab_commander, grab_pos=mod_grab_pos, x_axis=x_axis, y_axis= y_axis, z_axis = z_axis)
   else:
     spoon_grab_pose = frontOfSpoonTwo(arm_commander=arm_commander, grab_commander=grab_commander, grab_pos=mod_grab_pos, x_axis=x_axis, y_axis= y_axis, z_axis = z_axis)
-  moveSpoonOverBowl(arm_commander, 0.15)
+  moveSpoonOverBowl(arm_commander, 0.3)
   # Assuming we have grabbed the spoon and moved up 15 cm now
   # if we save the spoon_grab position, we can use this as the spoon drop position
   # grabSpoon(arm_commander= arm_commander, grab_commander= grab_commander, relativePos=relativePos, x_axis=x_axis, y_axis = y_axis, z_axis=z_axis)
