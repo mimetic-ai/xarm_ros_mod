@@ -33,6 +33,25 @@ def quat_to_npy(q):
     return np.array([q.x, q.y, q.z, q.w])
   else:
     raise TypeError('Variable of type {} should not be used.'.format(type(q)))
+  
+
+def moveSpoonOverBowl(arm_commander, spoon_len):
+  global bowl_pos
+  curr_pose = arm_commander.get_current_pose()
+  curr_pos_2d = np.array([curr_pose.pose.position.x, curr_pose.pose.position.y])
+  bowl_pos_2d = bowl_pos[:-1]
+
+  # unit vector pointing from current gripping pos to bowl est center
+  u_b = (bowl_pos_2d - curr_pos_2d)/(np.linalg.norm(bowl_pos_2d - curr_pos_2d))
+  tgt_pos_2d = bowl_pos_2d - spoon_len*u_b # x, y coord of gripper tgt
+  psi = np.arctan((bowl_pos_2d[1] - tgt_pos_2d[1])/(bowl_pos_2d[0] - tgt_pos_2d[0]))
+  q = quaternion.quaternion(np.cos(-psi/2), np.sin(-psi/2), 0, 0)
+  tgt_pose = copy.deepcopy(curr_pose)
+  curr_q_npy = quat_to_npy(tgt_pose.pose.orientation)
+  q_npy_tgt = q * curr_q_npy
+  tgt_pose.pose.position.x = tgt_pos_2d[0]
+  tgt_pose.pose.position.y = tgt_pos_2d[1]
+  moveArm(arm_commander, tgt_pose)
 
     
 # Takes in two quaternions and returns the smallest angle of rotation between them
@@ -95,8 +114,9 @@ def frontOfSpoonOne(arm_commander, grab_commander, grab_pos, x_axis, y_axis, z_a
   grab_commander.set_named_target('close')
   grab_commander.go(wait=True)
   grab_commander.clear_pose_targets()
-  current_pose.pose.position.z += 0.15
-  moveArm(arm_commander, current_pose)
+  up_pose = copy.deepcopy(current_pose)
+  up_pose.pose.position.z += 0.15
+  moveArm(arm_commander, up_pose)
   return current_pose
 
 def frontOfSpoonTwo(arm_commander, grab_commander, grab_pos, x_axis, y_axis, z_axis):
@@ -104,19 +124,31 @@ def frontOfSpoonTwo(arm_commander, grab_commander, grab_pos, x_axis, y_axis, z_a
   M = np.array([y_axis, z_axis, -x_axis]).reshape((3,3))
   #M = np.array([-z_axis, x_axis, -y_axis]).reshape((3,3))
   q = quaternion.from_rotation_matrix(M)
-  goal_pose = getPoseQ(grab_pos, q)
+  goal_pose = getPoseQ(grab_pos - 0.05*z_axis - 0.03*y_axis, q)
   moveArm(arm_commander, goal_pose)
   current_pose = arm_commander.get_current_pose()
   ##adjusting pose to grab position
-  current_pose.pose.position.x += 0.02
-  current_pose.pose.position.z -= 0.035
+  current_pose.pose.position.x += 0.05*z_axis[0]
+  current_pose.pose.position.y += 0.05*z_axis[1]
+  current_pose.pose.position.z += 0.05*z_axis[2]
   moveArm(arm_commander, current_pose)
   ##grabbing and moving up to final pose
   grab_commander.set_named_target('close')
   grab_commander.go(wait=True)
   grab_commander.clear_pose_targets()
-  current_pose.pose.position.z += 0.15
-  moveArm(arm_commander, current_pose)
+  
+  # Creating a rotation matrix where spoon is horizontal to the table
+  M = np.array([[0, 0, 1], [0, -1, 0], [1, 0, 0]]).reshape((3,3))
+  q = quaternion.from_rotation_matrix(M)
+  
+  up_pose = copy.deepcopy(current_pose)
+  up_pose.pose.position.z += 0.15
+  up_pose.pose.orientation.w = q.w
+  up_pose.pose.orientation.x = q.x
+  up_pose.pose.orientation.y = q.y
+  up_pose.pose.orientation.z = q.z
+  
+  moveArm(arm_commander, up_pose)
   return current_pose
 
 
@@ -225,11 +257,14 @@ def int_callback(data, args):
   #mod_grab_pos = center + (-0.035 * y_axis) + (0.01 * z_axis)  # desired grab position of the spoon
   mod_grab_pos = center  # desired grab position of the spoon
   # modifies gripper grabbing location in the aruco frame; center is used as origin
-  if data.data == '1':
-    intermediate_pos = frontOfSpoonOne(arm_commander=arm_commander, grab_commander=grab_commander, grab_pos=mod_grab_pos, x_axis=x_axis, y_axis= y_axis, z_axis = z_axis)
-  else:
-    intermediate_pos = frontOfSpoonTwo(arm_commander=arm_commander, grab_commander=grab_commander, grab_pos=mod_grab_pos, x_axis=x_axis, y_axis= y_axis, z_axis = z_axis)
 
+  spoon_grab_pose = [] # When dropping, gripper will return to where spoon was grabbed
+  if data.data == '1':
+    spoon_grab_pose = frontOfSpoonOne(arm_commander=arm_commander, grab_commander=grab_commander, grab_pos=mod_grab_pos, x_axis=x_axis, y_axis= y_axis, z_axis = z_axis)
+  else:
+    spoon_grab_pose = frontOfSpoonTwo(arm_commander=arm_commander, grab_commander=grab_commander, grab_pos=mod_grab_pos, x_axis=x_axis, y_axis= y_axis, z_axis = z_axis)
+  moveSpoonOverBowl(arm_commander, 0.15)
+  # Assuming we have grabbed the spoon and moved up 15 cm now
   # if we save the spoon_grab position, we can use this as the spoon drop position
   # grabSpoon(arm_commander= arm_commander, grab_commander= grab_commander, relativePos=relativePos, x_axis=x_axis, y_axis = y_axis, z_axis=z_axis)
   # goHome(arm_commander = arm_commander, relativePos = relativePos, intermediatePos = intermediate_pos)
@@ -393,13 +428,13 @@ def receive_message():
   grab_commander.set_max_velocity_scaling_factor(1.0)
   grab_commander.set_max_acceleration_scaling_factor(1.0)
 
-  # arm_commander.set_named_target('hold-up')
-  # arm_commander.go(wait=True)
-  # arm_commander.clear_pose_targets()
+  arm_commander.set_named_target('hold-up')
+  arm_commander.go(wait=True)
+  arm_commander.clear_pose_targets()
 
-  # grab_commander.set_named_target('open')
-  # grab_commander.go(wait=True)
-  # grab_commander.clear_pose_targets()
+  grab_commander.set_named_target('open')
+  grab_commander.go(wait=True)
+  grab_commander.clear_pose_targets()
 
   # Node is subscribing to the video_frames topic
  
