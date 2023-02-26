@@ -14,9 +14,21 @@ from tf import transformations as t
 import tf2_geometry_msgs.tf2_geometry_msgs as tf_gm
 import math
 
-global aruco_map 
+global aruco_map, bowl_pos 
 aruco_map = {}
 bowl_pos = [0, 0, 0]
+
+def roll(phi):
+    q = quaternion.as_quat_array([np.cos(phi/2), np.sin(phi/2), 0, 0])
+    return q
+
+def pitch(theta):
+    q = quaternion.as_quat_array([np.cos(theta/2), 0, np.sin(theta/2), 0])
+    return q
+
+def yaw(psi):
+    q = quaternion.as_quat_array([np.cos(psi/2), 0, 0, np.sin(psi/2)])
+    return q
 
 def bowl_callback(data):
     global bowl_pos
@@ -33,7 +45,52 @@ def quat_to_npy(q):
     return np.array([q.x, q.y, q.z, q.w])
   else:
     raise TypeError('Variable of type {} should not be used.'.format(type(q)))
+  
 
+def msg_to_quat(q):
+  if type(q) == geometry_msgs.msg._Quaternion.Quaternion:
+    return quaternion.quaternion(q.w, q.x, q.y, q.z)
+  else:
+    raise TypeError('Variable of type {} should not be used.'.format(type(q)))
+  
+def pos_to_npy(pos):
+  if type(pos) == geometry_msgs.msg._Vector3.Vector3 or geometry_msgs.msg._Point.Point:
+    return np.array([pos.x, pos.y, pos.z])
+  else:
+    raise TypeError('Variable of type {} should not be used'.format(type(pos)))  
+
+'''
+so i have the position of the scoop in the gripper frame
+i need to get the position of the scoop in the world frame
+position of gripper in world frame plus rotation from gripper frame to world frame multiplied spoon in gripper frame
+so i get the orientation of the spoon, convert to rotation matrix, transpose it and multiply by (0, 0, spn_len)
+'''
+
+
+# def moveSpoonOverBowl(arm_commander, spoon_len):
+#   global bowl_pos
+#   curr_pose = arm_commander.get_current_pose()
+#   gripper_orientation = quaternion.as_rotation_matrix(quaternion.as_quat_array(quat_to_npy(curr_pose.pose.orientation)))
+
+#   # Calculating the position of the spoon's scooper in the world frame
+#   temp = (gripper_orientation.T @ np.array([[0], [0], [spoon_len]])).reshape((-1))
+#   print(temp)
+#   spoon_pos_world = pos_to_npy(curr_pose.pose.position) + temp
+#   print(spoon_pos_world)
+
+#   # Moving the gripper to place the spoon above the bowl
+#   gripper_to_spoon_vec = spoon_pos_world - pos_to_npy(curr_pose.pose.position)
+#   print("gripper to spoon vec", gripper_to_spoon_vec)
+#   print("bowl pos", bowl_pos)
+#   # bowl_pos_2d = bowl_pos[:-1]
+#   # gripper_xy = bowl_pos_2d - gripper_to_spoon_vec[:-1]
+#   gripper_tgt_pos = bowl_pos - gripper_to_spoon_vec
+#   print(gripper_tgt_pos)
+
+#   tgt_pose = getPoseQ(gripper_tgt_pos, quaternion.from_rotation_matrix(gripper_orientation))
+#   moveArm(arm_commander, tgt_pose)
+#   tgt_pose.position.z = bowl_pos[-1] + 0.1
+#   moveArm(arm_commander, tgt_pose)
     
 # Takes in two quaternions and returns the smallest angle of rotation between them
 def quat_distance(q1, q2):
@@ -75,135 +132,320 @@ def moveArm(arm_commander, target_pose):
   arm_commander.go(wait=True)
   arm_commander.clear_pose_targets()
 
+# def getWaypointDiag(start_pose, dest_point):
+#  distance = 0
+#  waypoints = []
+#  distance_x = dest_point[0] - start_pose.position.x
+#  distance_y = dest_point[0] - start_pose.position.y
+#  increments_x = abs(distance_x)//0.1
+#  increments_y = abs(distance_y)//0.1
+#  for points in range(min(int(abs(increments_x)), int(abs(increments_y)))):
+#    if distance_x >= 0.1:
+#      start_pose.position.x += 0.1
+#      if distance_y >= 0.1:
+#        start_pose.position.y += 0.1
+#      elif distance_y <= -0.1:
+#        start_pose.position.y -= 0.1
+#      waypoints.append(copy.deepcopy(start_pose))
+#    elif distance_x <= -0.1:
+#      start_pose.position.x -= 0.1
+#      if distance_y >= 0.1:
+#        start_pose.position.y += 0.1
+#      elif distance_y <= -0.1:
+#        start_pose.position.y -= 0.1
+#      waypoints.append(copy.deepcopy(start_pose))
+#  if distance_x >= 0:
+#    start_pose.position.x += (abs(distance_x)%0.1)
+#    if distance_y >= 0:
+#     start_pose.position.y += (abs(distance_y)%0.1)
+#    elif distance_y <= 0:
+#     start_pose.position.y -= (abs(distance_y)%0.1)
+#    waypoints.append(copy.deepcopy(start_pose))
+#  elif distance_x <= 0:
+#    start_pose.position.x -= (abs(distance_x)%0.1)
+#    waypoints.append(copy.deepcopy(start_pose))
+#  return waypoints
 
-##moves robotic arm from current position to the position in front of spoon1, takes in arm commander and aruco location info
-##position: x, y, z
-##orientation: x, y, z, w
-def frontOfSpoonOne(arm_commander, grab_commander, grab_pos, x_axis, y_axis, z_axis):
-  #grab_pos = grab_pos + (-0.01 * y_axis) # + (0.005 * x_axis)
-  M = np.array([y_axis, z_axis, -x_axis]).reshape((3,3))
-  #M = np.array([-z_axis, x_axis, -y_axis]).reshape((3,3))
-  q = quaternion.from_rotation_matrix(M)
-  goal_pose = getPoseQ(grab_pos, q)
-  moveArm(arm_commander, goal_pose)
-  current_pose = arm_commander.get_current_pose()
-  ##adjusting pose to grab position
-  current_pose.pose.position.x += 0.02
-  current_pose.pose.position.z -= 0.03
-  moveArm(arm_commander, current_pose)
-  ##grabbing and moving up to final pose
-  grab_commander.set_named_target('close')
+##get waypoints for the x direction between start and destination
+def getWaypointX(start_pose, dest_point):
+ distance = 0
+ waypoints = []
+ distance = dest_point[0] - start_pose.position.x
+ increments = abs(distance)//0.1
+ for points in range(int(abs(increments))):
+   if distance >= 0.1:
+     start_pose.position.x += 0.1
+     waypoints.append(copy.deepcopy(start_pose))
+   elif distance <= -0.1:
+     start_pose.position.x -= 0.1
+     waypoints.append(copy.deepcopy(start_pose))
+ if distance >= 0:
+   start_pose.position.x += (abs(distance)%0.1)
+   waypoints.append(copy.deepcopy(start_pose))
+ elif distance <= -0:
+   start_pose.position.x -= (abs(distance)%0.1)
+   waypoints.append(copy.deepcopy(start_pose))
+ return waypoints
+
+##get waypoints for the y direction between start and destination
+def getWaypointY(start_pose, dest_point):
+ distance = 0
+ waypoints = []
+ distance = dest_point[1] - start_pose.position.y
+ increments = abs(distance)//0.1
+ for points in range(int(abs(increments))):
+   if distance >= 0.1:
+     start_pose.position.y += 0.1
+     waypoints.append(copy.deepcopy(start_pose))
+   elif distance <= -0.1:
+     start_pose.position.y -= 0.1
+     waypoints.append(copy.deepcopy(start_pose))
+ if distance >= 0:
+   start_pose.position.y += (abs(distance)%0.1)
+   waypoints.append(copy.deepcopy(start_pose))
+ elif distance <= -0:
+   start_pose.position.y -= (abs(distance)%0.1)
+   waypoints.append(copy.deepcopy(start_pose))
+ return waypoints
+
+##get waypoint in z direction between start and destination
+def getWaypointZ(start_pose, dest_point):
+ distance = 0
+ waypoints = []
+ distance = dest_point[2] - start_pose.position.z
+ increments = abs(distance)//0.1
+ for points in range(int(abs(increments))):
+   if distance >= 0.1:
+     start_pose.position.z += 0.1
+     waypoints.append(copy.deepcopy(start_pose))
+   elif distance <= -0.1:
+     start_pose.position.z -= 0.1
+     waypoints.append(copy.deepcopy(start_pose))
+ if distance >= 0:
+   start_pose.position.z += (abs(distance)%0.1)
+   waypoints.append(copy.deepcopy(start_pose))
+ elif distance <= -0:
+   start_pose.position.z -= (abs(distance)%0.1)
+   waypoints.append(copy.deepcopy(start_pose))
+ return waypoints
+  
+##moving spoon over bowl using waypoints
+def moveSpoonOverBowlWaypoint(arm_commander, spoon_len, spoon_angle):
+ global bowl_pos
+ print("called go over bowl")
+ curr_pose = arm_commander.get_current_pose().pose
+ target_loc = [bowl_pos[0] - 0.6, bowl_pos[1], bowl_pos[2]]
+ waypointsY = getWaypointY(curr_pose, target_loc)
+ waypointsX = getWaypointX(curr_pose, target_loc)
+ waypoints = waypointsY + waypointsX
+ (plan, fraction) = arm_commander.compute_cartesian_path(
+   waypoints, 0.01, 0.0  # waypoints to follow  # eef_step
+)  # jump_threshold
+ arm_commander.execute(plan, wait=True)
+ arm_commander.clear_pose_targets()
+ curr_pose = arm_commander.get_current_pose().pose
+ return curr_pose
+
+##grab spoon using waypoints 
+def grabSpoonWaypoint(arm_commander, grab_commander, aruco_center):
+ print("called grab spoon one")
+ curr_pose = arm_commander.get_current_pose().pose
+ target_loc = [aruco_center[0], aruco_center[1], aruco_center[2] - 0.02]
+ waypointsY = getWaypointY(curr_pose, target_loc)
+ waypointsX = getWaypointX(curr_pose, target_loc)
+ waypointsZ = getWaypointZ(curr_pose, target_loc)
+ waypoints = waypointsY + waypointsX + waypointsZ
+#  waypoints = diagonalWaypoint + waypointsZ
+ (plan, fraction) = arm_commander.compute_cartesian_path(
+   waypoints, 0.01, 0.0  # waypoints to follow  # eef_step
+)  # jump_threshold
+ arm_commander.execute(plan, wait=True)
+ arm_commander.clear_pose_targets()
+ grab_commander.set_named_target('close')
+ grab_commander.go(wait=True)
+ grab_commander.clear_pose_targets()
+ new_waypoint = []
+ ##move up and tilt up
+ curr_pose = arm_commander.get_current_pose().pose
+ curr_pose.position.z += 0.06
+ desired_angle = pitch(-1 * np.pi/30)
+ ##aborted error
+ # #desired_angle = pitch(np.pi/2)
+ # ##aborted error
+ # #desired_angle = yaw(np.pi/2)
+ current_orientation_msg = curr_pose.orientation
+ current_orientation = msg_to_quat(current_orientation_msg)
+ new_orientation = desired_angle * current_orientation
+ current_loc = [curr_pose.position.x, curr_pose.position.y, curr_pose.position.z]
+ target_pose = getPoseQ(current_loc, new_orientation)
+ new_waypoint.append(target_pose)
+ (plan, fraction) = arm_commander.compute_cartesian_path(
+   new_waypoint, 0.01, 0.0  # waypoints to follow  # eef_step
+   )  # jump_threshold
+ arm_commander.execute(plan, wait=True)
+ arm_commander.clear_pose_targets()
+ return arm_commander.get_current_pose()
+
+
+
+
+
+
+
+
+##put spoon back using waypoints takes in home_pose
+def goHomeWaypoint(arm_commander, grab_commander, home_pose):
+  print("going home")
+  curr_pose = arm_commander.get_current_pose().pose
+  target_loc = [home_pose.position.x, home_pose.position.y, home_pose.position.z]
+  waypointsY = getWaypointY(curr_pose, target_loc)
+  waypointsX = getWaypointX(curr_pose, target_loc)
+  waypoints = waypointsY + waypointsX
+  (plan, fraction) = arm_commander.compute_cartesian_path(
+    waypoints, 0.01, 0.0  # waypoints to follow  # eef_step
+    )  # jump_threshold
+  arm_commander.execute(plan, wait=True)
+  arm_commander.clear_pose_targets()
+  new_waypoint = []
+  curr_pose = arm_commander.get_current_pose().pose
+  ##put down and tilt down
+  curr_pose.position.z -= 0.06
+  desired_angle = pitch(np.pi/30)
+  ##aborted error
+  #desired_angle = pitch(np.pi/2)
+
+  ##aborted error
+  #desired_angle = yaw(np.pi/2)
+  current_orientation_msg = curr_pose.orientation
+  current_orientation = msg_to_quat(current_orientation_msg)
+  new_orientation = desired_angle * current_orientation
+  current_loc = [curr_pose.position.x, curr_pose.position.y, curr_pose.position.z]
+  target_pose = getPoseQ(current_loc, new_orientation)
+  new_waypoint.append(target_pose)
+  (plan, fraction) = arm_commander.compute_cartesian_path(
+    new_waypoint, 0.01, 0.0  # waypoints to follow  # eef_step
+    )  # jump_threshold
+  arm_commander.execute(plan, wait=True)
+  arm_commander.clear_pose_targets()
+  grab_commander.set_named_target('open')
   grab_commander.go(wait=True)
   grab_commander.clear_pose_targets()
-  current_pose.pose.position.z += 0.15
-  moveArm(arm_commander, current_pose)
-  return current_pose
-
-def frontOfSpoonTwo(arm_commander, grab_commander, grab_pos, x_axis, y_axis, z_axis):
-  #grab_pos = grab_pos + (-0.01 * y_axis) # + (0.005 * x_axis)
-  M = np.array([y_axis, z_axis, -x_axis]).reshape((3,3))
-  #M = np.array([-z_axis, x_axis, -y_axis]).reshape((3,3))
-  q = quaternion.from_rotation_matrix(M)
-  goal_pose = getPoseQ(grab_pos, q)
-  moveArm(arm_commander, goal_pose)
-  current_pose = arm_commander.get_current_pose()
-  ##adjusting pose to grab position
-  current_pose.pose.position.x += 0.02
-  current_pose.pose.position.z -= 0.035
-  moveArm(arm_commander, current_pose)
-  ##grabbing and moving up to final pose
-  grab_commander.set_named_target('close')
-  grab_commander.go(wait=True)
-  grab_commander.clear_pose_targets()
-  current_pose.pose.position.z += 0.15
-  moveArm(arm_commander, current_pose)
-  return current_pose
+  new_waypoint_2 = []
+  curr_pose = arm_commander.get_current_pose().pose
+  curr_pose.position.z += 0.06
+  new_waypoint_2.append(curr_pose)
+  (plan, fraction) = arm_commander.compute_cartesian_path(
+    new_waypoint_2, 0.01, 0.0  # waypoints to follow  # eef_step
+    )  # jump_threshold
+  arm_commander.execute(plan, wait=True)
+  arm_commander.clear_pose_targets()
 
 
-# def tweakPosition(arm_commander, grab_pos, x_axis, y_axis, z_axis):
-#   M = np.array([-z_axis, x_axis, y_axis]).reshape((3,3))
+
+def dispense(arm_commander):
+  print("called dispense")
+  current_pose = arm_commander.get_current_pose().pose
+  ##goes to wrong place
+  desired_angle = roll(np.pi/3)
+  ##aborted error
+  #desired_angle = pitch(np.pi/2)
+
+  ##aborted error
+  #desired_angle = yaw(np.pi/2)
+  current_orientation_msg = current_pose.orientation
+  current_orientation = msg_to_quat(current_orientation_msg)
+  new_orientation = desired_angle * current_orientation
+  current_loc = [current_pose.position.x, current_pose.position.y, current_pose.position.z]
+  target_pose = getPoseQ(current_loc, new_orientation)
+  moveArm(arm_commander=arm_commander, target_pose=target_pose)
+  current_pose = arm_commander.get_current_pose().pose
+  ##goes to wrong place
+  desired_angle = roll(-1 * np.pi/3)
+  ##aborted error
+  #desired_angle = pitch(np.pi/2)
+
+  ##aborted error
+  #desired_angle = yaw(np.pi/2)
+  current_orientation_msg = current_pose.orientation
+  current_orientation = msg_to_quat(current_orientation_msg)
+  new_orientation = desired_angle * current_orientation
+  current_loc = [current_pose.position.x, current_pose.position.y, current_pose.position.z]
+  target_pose = getPoseQ(current_loc, new_orientation)
+  moveArm(arm_commander=arm_commander, target_pose=target_pose)
+  
+  
+
+
+
+
+
+# ##moves robotic arm from current position to the position in front of spoon1, takes in arm commander and aruco location info
+# ##position: x, y, z
+# ##orientation: x, y, z, w
+# def frontOfSpoonOne(arm_commander, grab_commander, grab_pos, x_axis, y_axis, z_axis):
+#   #grab_pos = grab_pos + (-0.01 * y_axis) # + (0.005 * x_axis)
+#   M = np.array([y_axis, z_axis, -x_axis]).reshape((3,3))
+#   #M = np.array([-z_axis, x_axis, -y_axis]).reshape((3,3))
 #   q = quaternion.from_rotation_matrix(M)
 #   goal_pose = getPoseQ(grab_pos, q)
 #   moveArm(arm_commander, goal_pose)
 #   current_pose = arm_commander.get_current_pose()
+#   ##adjusting pose to grab position
+#   current_pose.pose.position.x += 0.02
+#   current_pose.pose.position.z -= 0.03
+#   moveArm(arm_commander, current_pose)
+#   ##grabbing and moving up to final pose
+#   grab_commander.set_named_target('close')
+#   grab_commander.go(wait=True)
+#   grab_commander.clear_pose_targets()
+  
+#   # Creating a rotation matrix where spoon is horizontal to the table
+#   M = np.array([[0, 0, 1], [0, -1, 0], [1, 0, 0]]).reshape((3,3))
+#   q = quaternion.from_rotation_matrix(M)
+#   q = pitch(np.pi/8) * q
+  
+#   up_pose = copy.deepcopy(current_pose)
+#   up_pose.pose.position.z += 0.15
+#   up_pose.pose.orientation.w = q.w
+#   up_pose.pose.orientation.x = q.x
+#   up_pose.pose.orientation.y = q.y
+#   up_pose.pose.orientation.z = q.z
+  
+#   moveArm(arm_commander, up_pose)
 #   return current_pose
 
-
-# ##moves robotic arm from current posotion to the position to the left of spoon1, takes in arm commander and aruco location info
-# def leftOfSpoonOne(arm_commander, grab_pos, x_axis, y_axis, z_axis):
-#   # This code was for the left or right approach
-#   M1 = np.array([-z_axis, y_axis, x_axis]).reshape((3,3))
-#   M2 = np.array([z_axis, y_axis, -x_axis]).reshape((3,3))
-#   # Rows of rotation matrix match to axes of gripper
-#   # First row is gripper x axis, second is y_axis, and third is z_axis
-#   # in our case:
-#   # gripper's z_axis should be the aruco's z_axis
-#   # gripper's x_axis shoule be the aruco's y_axis
-#   # gripper's y_axis should be the aruco's -x_axis
-#   curr_q = arm_commander.get_current_pose().pose.orientation
-#   q1 = quaternion.from_rotation_matrix(M1)
-#   q2 = quaternion.from_rotation_matrix(M2) 
-#   goal_pose = []
-#   relativePos = None
-#   # need to get rid of the two quaternion check
-#   if quat_distance(curr_q, q1) < quat_distance(curr_q, q2): # checks min. dist. b/w 2 quats 
-#     goal_pose = getPoseQ(grab_pos + 0.05*x_axis, q1)
-#     relativePos = 'left'
-#   else:
-#     goal_pose = getPoseQ(grab_pos - 0.05*x_axis, q2)
-#     relativePos = 'right'
+# def frontOfSpoonTwo(arm_commander, grab_commander, grab_pos, x_axis, y_axis, z_axis):
+#   #grab_pos = grab_pos + (-0.01 * y_axis) # + (0.005 * x_axis)
+#   M = np.array([y_axis, z_axis, x_axis]).reshape((3,3))
+#   #M = np.array([-z_axis, x_axis, -y_axis]).reshape((3,3))
+#   q = quaternion.from_rotation_matrix(M)
+#   goal_pose = getPoseQ(grab_pos - 0.05*z_axis - 0.03*y_axis, q)
 #   moveArm(arm_commander, goal_pose)
 #   current_pose = arm_commander.get_current_pose()
-#   return current_pose, relativePos
-
-
-###takes in string specifying relative position, grabs spoon
-##CASE SENSITIVE
-# def grabSpoon(arm_commander, grab_commander, relativePos, x_axis, y_axis, z_axis):
-#   current_pos = arm_commander.get_current_pose().pose.position
-#   position = np.array([current_pos.x, current_pos.y, current_pos.z])
-#   if relativePos == 'straight':
-#     grab_commander.set_named_target('close')
-#     grab_commander.go(wait=True)
-#     grab_commander.clear_pose_targets()
-#     return
-#   elif relativePos == 'left':
-#         # tweakPosition(arm_commander=arm_commander, grab_pos = position, x_axis=x_axis, y_axis=y_axis, z_axis=z_axis)
-#     #slightly adjusts gripper position so that spoon is grabbable
-#     #TO-do: change approach so that pose is generalizable not hardset
-#     position -= (0.05*x_axis)
-#     orientation = arm_commander.get_current_pose().pose.orientation
-#     target_pose = getPoseQ(position, orientation)
-#     moveArm(arm_commander,target_pose)
-#     grab_commander.set_named_target('close')
-#     grab_commander.go(wait=True)
-#     grab_commander.clear_pose_targets()
-#     return
-#   elif relativePos == 'right':
-#     position += (0.05*x_axis)
-#     orientation = arm_commander.get_current_pose().pose.orientation
-#     target_pose = getPoseQ(position, orientation)
-#     moveArm(arm_commander,target_pose)
-#     grab_commander.set_named_target('close')
-#     grab_commander.go(wait=True)
-#     grab_commander.clear_pose_targets()
-#     return
+#   ##adjusting pose to grab position
+#   current_pose.pose.position.x += 0.05*z_axis[0]
+#   current_pose.pose.position.y += 0.05*z_axis[1]
+#   current_pose.pose.position.z += 0.05*z_axis[2]
+#   moveArm(arm_commander, current_pose)
+#   ##grabbing and moving up to final pose
+#   grab_commander.set_named_target('close')
+#   grab_commander.go(wait=True)
+#   grab_commander.clear_pose_targets()
   
-
-# def goHome(arm_commander, relativePos, intermediatePos):
-#   if relativePos == 'straight':
-#     arm_commander.set_named_target('hold-up')
-#     arm_commander.go(wait=True)
-#     arm_commander.clear_pose_targets()
-#     return 
-#   elif relativePos == 'left':
-#     moveArm(arm_commander=arm_commander, target_pose=intermediatePos)
-#     arm_commander.set_named_target('hold-up')
-#     arm_commander.go(wait=True)
-#     arm_commander.clear_pose_targets()
-#     return
-
-
+#   # Creating a rotation matrix where spoon is horizontal to the table
+#   M = np.array([[0, 0, 1], [0, -1, 0], [1, 0, 0]]).reshape((3,3))
+#   q = quaternion.from_rotation_matrix(M)
+#   q = pitch(np.pi/8) * q
+  
+#   up_pose = copy.deepcopy(current_pose)
+#   up_pose.pose.position.z += 0.15
+#   up_pose.pose.orientation.w = q.w
+#   up_pose.pose.orientation.x = q.x
+#   up_pose.pose.orientation.y = q.y
+#   up_pose.pose.orientation.z = q.z
+  
+#   moveArm(arm_commander, up_pose)
+#   return current_pose
 
 def int_callback(data, args):
   global aruco_map, bowl_pos
@@ -221,149 +463,32 @@ def int_callback(data, args):
   z_axis = np.array([z_axis.x, z_axis.y, z_axis.z])
   y_axis = np.cross(z_axis, x_axis) # y_axis comes from z (cross) x
 
+  spoon_len = 0.6
+  spoon_angle = np.arctan2(z_axis[0], z_axis[1])
+  bowl_pos = [0.798, 0, 0.608]
+
   center = np.array([center.x, center.y, center.z])
   #mod_grab_pos = center + (-0.035 * y_axis) + (0.01 * z_axis)  # desired grab position of the spoon
   mod_grab_pos = center  # desired grab position of the spoon
   # modifies gripper grabbing location in the aruco frame; center is used as origin
-  if data.data == '1':
-    intermediate_pos = frontOfSpoonOne(arm_commander=arm_commander, grab_commander=grab_commander, grab_pos=mod_grab_pos, x_axis=x_axis, y_axis= y_axis, z_axis = z_axis)
-  else:
-    intermediate_pos = frontOfSpoonTwo(arm_commander=arm_commander, grab_commander=grab_commander, grab_pos=mod_grab_pos, x_axis=x_axis, y_axis= y_axis, z_axis = z_axis)
+  spoon_grab_pose = grabSpoonWaypoint(arm_commander=arm_commander, grab_commander=grab_commander, aruco_center=center)
+  moveSpoonOverBowlWaypoint(arm_commander=arm_commander, spoon_len=spoon_len, spoon_angle=spoon_angle)
+  dispense(arm_commander = arm_commander)
+  goHomeWaypoint(arm_commander=arm_commander, home_pose=spoon_grab_pose.pose, grab_commander=grab_commander)
 
-  # if we save the spoon_grab position, we can use this as the spoon drop position
-  # grabSpoon(arm_commander= arm_commander, grab_commander= grab_commander, relativePos=relativePos, x_axis=x_axis, y_axis = y_axis, z_axis=z_axis)
-  # goHome(arm_commander = arm_commander, relativePos = relativePos, intermediatePos = intermediate_pos)
-
-  # Next steps:
-  # the transform from the gripper frame to the scoop frame is:
-    # the scoop's x_axis is the gripper's z_axis
-    # the scoop's y_axis is the gripper's -y_axis
-    # the scoop's z_axis is the gripper's x_axis
-    # the scoop's origin is /alpha (cm) down the spoon from the aruco code's center 
-    # alpha depends on the length of the spoon; don't know off the top of my head
-    # this info is given in the scoop frame, but we need in the gripper frame
-    # a rotation matrix's inverse is it's transpose
-    # think about the grippers position with respect to the position of the scoop
-
-  # we get the bowl position from the bowl callback
-  # bowl_detection.py node is not auto-run
-  # make sure to launch manually
-  # bowl position subscriber should be created already
-
-  # for right now, just try identity quaternion as the target pose for scoop
-  # could need to be tweaked later
-  # need to find gripper's position from scoop as described above
-  # a rotation about the scoop's x_axis is equivalent to rotation around the gripper's y_axis
-
-  # once scoop over bowl, scoop needs to be rotated around gripper z_axis by -pi/2 rad
-  # then we return gripper to drop position as saved earlier
-
-  # this is a high level outline
-  # there is a lot to change
-  # this should also help us communicate where we're running into issues
-  # text if you run into something but don't expect an immediate reply
-  # we can work through more stuff together when i start working in the evening
-  
-
-  # #M = np.array([-z_axis, x_axis, -y_axis]).reshape((3,3))
-  # M = np.array([x_axis, z_axis, -y_axis]).reshape((3,3))
-  # q = quaternion.from_rotation_matrix(M)
-
-  # goal_pose = geometry_msgs.msg.Pose()
-  # goal_pose.position.x = mod_grab_pos[0]
-  # goal_pose.position.y = mod_grab_pos[1]
-  # goal_pose.position.z = mod_grab_pos[2]
-
-  # goal_pose.orientation.w = q.w
-  # goal_pose.orientation.x = q.x
-  # goal_pose.orientation.y = q.y
-  # #goal_pose.orientation.z = (q.z * 3 * math.pi/2)
-  # goal_pose.orientation.z = q.z
+  # spoon_grab_pose = [] # When dropping, gripper will return to where spoon was grabbed
+  # if data.data == '1':
+  #   #spoon_grab_pose = frontOfSpoonOne(arm_commander=arm_commander, grab_commander=grab_commander, grab_pos=mod_grab_pos, x_axis=x_axis, y_axis= y_axis, z_axis = z_axis)
+  #   spoon_grab_pose = grabSpoonWaypoint(arm_commander=arm_commander, grab_commander=grab_commander, aruco_center=center)
+  #   moveSpoonOverBowlWaypoint(arm_commander=arm_commander, spoon_len=spoon_len, spoon_angle=spoon_angle)
+  #   goHomeWaypoint(arm_commander=arm_commander, home_pose=spoon_grab_pose.pose)
+  # else:
+  #   spoon_grab_pose = frontOfSpoonTwo(arm_commander=arm_commander, grab_commander=grab_commander, grab_pos=mod_grab_pos, x_axis=x_axis, y_axis= y_axis, z_axis = z_axis)
+  #   moveSpoonOverBowlWaypoint(arm_commander=arm_commander, spoon_len=spoon_len, spoon_angle=spoon_angle)
+  #   goHomeWaypoint(arm_commander=arm_commander, home_pose=spoon_grab_pose.pose)
 
 
-
-  # T1 = np.array([0, 0, 0.1]) # Translation from AruCo to grab
-  # R1 = t.quaternion_matrix([q.x, q.y, q.z, q.w])[:3, :3] # Rotation from AruCo to grab
-  # # aruco_to_grab = t.concatenate_matrices(T, R)
-  # # grab_to_aruco = t.inverse_matrix(transform)
-  # # print(inv_tf)
-
-  # T2 = np.array([0, 0, 0.2]) # Translation from AruCo to spoon-end
-  # R2 = np.array([[0, 0, 1], [1, 0, 0], [0, 1, 0]]) # Rotation from AruCo to spoon-end
-  # # aruco_to_scoop = t.concatenate_matrices(T, R)
-  # # scoop_to_aruco = t.inverse_matrix(transform)
-  # # print(inv_tf)
-
-  # R12 = R2@R1.T
-  # t12 = R1@np.array([T2 - T1]).T
-
-  # temp = np.eye(4)
-  # temp[:3,:3] = R12
-  # R12 = temp
-  # del temp
-  # T12 = t.translation_matrix((t12.T)[0])
-  # grab_to_end = t.concatenate_matrices(R12, T12)
-  # end_to_grab = t.inverse_matrix(grab_to_end)
-  # T = t.translation_from_matrix(end_to_grab)
-  # R = t.quaternion_from_matrix(end_to_grab)
-
-  # end_to_grab_tf = geometry_msgs.msg.TransformStamped()
-  # end_to_grab_tf.transform.translation.x = T[0]
-  # end_to_grab_tf.transform.translation.y = T[1]
-  # end_to_grab_tf.transform.translation.z = T[2]
-  # end_to_grab_tf.transform.rotation.x = R[0]
-  # end_to_grab_tf.transform.rotation.y = R[1]
-  # end_to_grab_tf.transform.rotation.z = R[2]
-  # end_to_grab_tf.transform.rotation.w = R[3]
-
-
-  
-  # arm_commander.set_pose_target(goal_pose)
-  # print("96 moving to spoon")
-  # arm_commander.go(wait=True)
-  # arm_commander.clear_pose_targets()
-  # # rospy.logwarn('finished moving, going to ready position after 2 sec')
-  # rospy.sleep(1) 
-
-
-  # # print('99 closing gripper')
-  # # grab_commander.set_named_target('close')
-  # # grab_commander.go(wait=True)
-  # # grab_commander.clear_pose_targets()
-  # # print(arm_commander.get_current_pose())
-  # # # rospy.sleep(1)
-
-  # # # over_bowl_spoon_pose = geometry_msgs.msg.PoseStamped()
-  # # # over_bowl_spoon_pose.pose.position.x = bowl_pos[0]
-  # # # over_bowl_spoon_pose.pose.position.y = bowl_pos[1]
-  # # # over_bowl_spoon_pose.pose.position.z = bowl_pos[2]
-  # # # over_bowl_spoon_pose.pose.orientation.w = np.cos(3*np.pi/4)
-  # # # over_bowl_spoon_pose.pose.orientation.x = 0
-  # # # over_bowl_spoon_pose.pose.orientation.y = 0
-  # # # over_bowl_spoon_pose.pose.orientation.z = np.sin(3*np.pi/4)
-
-  # # # over_bowl_hand_pose = tf_gm.do_transform_pose(over_bowl_spoon_pose, end_to_grab_tf)
-
-  # # # # traj_constraints = moveit_msgs.msg.Constraints()
-  # # # # ocm = moveit_msgs.msg.OrientationConstraint()
-  # # # # ocm.link_name = "xarm_gripper"
-  # # # # ocm.header.frame_id = "xarm_gripper"
-  # # # # ocm.orientation.x = 0
-  # # # # ocm.orientation.y = 0
-  # # # # traj_constraints.orientation_constraints.append(ocm)
-  # # # print('124 moving spoon over bowl')
-  # # # arm_commander.set_pose_target(over_bowl_hand_pose)
-  # # # # arm_commander.set_path_constraints(traj_constraints)
-  # # # arm_commander.go(wait=True)
-  # # # arm_commander.clear_pose_targets()
-
-  # # # grab_commander.set_named_target('open')
-  # # # grab_commander.go(wait=True)
-  # # # grab_commander.clear_pose_targets()
-
-  # # # arm_commander.set_named_target('hold-up')
-  # # # arm_commander.go(wait=True)
-  # # # arm_commander.clear_pose_targets()
+ 
 
 def receive_message():
 
@@ -393,13 +518,13 @@ def receive_message():
   grab_commander.set_max_velocity_scaling_factor(1.0)
   grab_commander.set_max_acceleration_scaling_factor(1.0)
 
-  # arm_commander.set_named_target('hold-up')
-  # arm_commander.go(wait=True)
-  # arm_commander.clear_pose_targets()
+  arm_commander.set_named_target('hold-up')
+  arm_commander.go(wait=True)
+  arm_commander.clear_pose_targets()
 
-  # grab_commander.set_named_target('open')
-  # grab_commander.go(wait=True)
-  # grab_commander.clear_pose_targets()
+  grab_commander.set_named_target('open')
+  grab_commander.go(wait=True)
+  grab_commander.clear_pose_targets()
 
   # Node is subscribing to the video_frames topic
  
@@ -408,4 +533,3 @@ def receive_message():
   
 if __name__ == '__main__':
   receive_message()
-

@@ -127,7 +127,7 @@ planner_configs:
     load_planner_data: false
     planner_data_path: /tmp/roadmap.graph
 xarm6:
-  default_planner_config: PersistentLazyPRMstar
+  default_planner_config: PRM
   planner_configs:
     - SBL
     - EST
